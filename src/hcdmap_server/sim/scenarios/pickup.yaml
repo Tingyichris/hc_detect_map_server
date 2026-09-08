@@ -1,0 +1,22 @@
+store_id: store-001
+loop_seconds: 90
+inject_every_s: [3, 6]
+classes: { red: 5, gold: 2, black: 1, green: 4 }
+
+cameras:
+  - { id: cam_kitchen, role: source, s_start: 0.00, s_end: 0.06 }
+  - { id: cam_t01, role: table, s_start: 0.10, s_end: 0.22 }
+  - { id: cam_t02, role: table, s_start: 0.20, s_end: 0.34 }
+  - { id: cam_t03, role: table, s_start: 0.34, s_end: 0.48 }
+  - { id: cam_t04, role: table, s_start: 0.52, s_end: 0.66 }
+  - { id: cam_t05, role: table, s_start: 0.66, s_end: 0.80 }
+  - { id: cam_t06, role: table, s_start: 0.80, s_end: 0.96 }
+
+# Plates removed from the belt (exit_side=offbelt at that table, nothing downstream).
+pickups:
+  - { after_s: 20, table_id: T02 }
+  - { after_s: 45, table_id: T04 }
+  - { after_s: 70, table_id: T05 }
+  - { after_s: 95, table_id: T02 }
+
+occlusions: []

@@ -1,0 +1,39 @@
+[project]
+name = "hcdmap-server"
+version = "0.1.0"
+description = "Fusion engine: MQTT -> de-dup -> track reconstruction -> pickup detection"
+requires-python = ">=3.11"
+dependencies = [
+    "aiomqtt>=2.3",
+    "pydantic>=2.7",
+    "fastapi>=0.111",       # WS server for the frontend live feed
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",          # idempotent result feed to backend
+    "pyyaml>=6.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+
+[project.scripts]
+hcdmap-server = "hcdmap_server.__main__:main"
+hcdmap-fake-pi = "hcdmap_server.sim.fake_pi:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hcdmap_server"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hcdmap/schemas/mqtt_event.schema.json",
+  "title": "MQTT plate lifecycle event",
+  "type": "object",
+  "required": ["v", "camera_id", "seq", "ts", "event", "track_id", "class", "conf"],
+  "additionalProperties": true,
+  "properties": {
+    "v": { "type": "integer", "const": 1 },
+    "camera_id": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "ts": { "type": "number" },
+    "event": { "enum": ["enter", "update", "exit"] },
+    "track_id": { "type": "integer", "minimum": 0 },
+    "class": { "type": "string", "minLength": 1 },
+    "conf": { "type": "number", "minimum": 0, "maximum": 1 },
+    "pos_norm": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "exit_side": { "enum": ["downstream", "upstream", "offbelt", "unknown", null] }
+  }
+}

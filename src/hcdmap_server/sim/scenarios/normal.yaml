@@ -1,0 +1,17 @@
+store_id: store-001
+loop_seconds: 108
+inject_every_s: [4, 9]
+classes: { red: 5, gold: 2, black: 1, green: 4 }
+
+# s_start / s_end are normalised arc-length positions on the virtual loop.
+cameras:
+  - { id: cam_kitchen, role: source, s_start: 0.00, s_end: 0.06 }
+  - { id: cam_t01, role: table, s_start: 0.10, s_end: 0.22 }
+  - { id: cam_t02, role: table, s_start: 0.20, s_end: 0.34 }   # overlaps cam_t01
+  - { id: cam_t03, role: table, s_start: 0.34, s_end: 0.48 }
+  - { id: cam_t04, role: table, s_start: 0.52, s_end: 0.66 }   # gap before this one
+  - { id: cam_t05, role: table, s_start: 0.66, s_end: 0.80 }
+  - { id: cam_t06, role: table, s_start: 0.80, s_end: 0.96 }
+
+pickups: []
+occlusions: []
