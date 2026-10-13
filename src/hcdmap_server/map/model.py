@@ -55,6 +55,9 @@ class TrackMap:
         for c in d["cameras"]:
             span_px = c["view_span_px"]
             span = (geom.project(tuple(span_px[0])), geom.project(tuple(span_px[1])))
+            # Camera markers are the canonical checkpoints. Older map versions may contain
+            # hand-drawn spans/counting points that no longer line up with the marker.
+            checkpoint_px = c.get("marker_px") or c["counting_point_px"]
             zone = None
             if c.get("pickup_zone_px"):
                 z = c["pickup_zone_px"]
@@ -62,7 +65,7 @@ class TrackMap:
             cameras[c["id"]] = Camera(
                 id=c["id"],
                 role=c.get("role", "table"),
-                counting_s=geom.project(tuple(c["counting_point_px"])),
+                counting_s=geom.project(tuple(checkpoint_px)),
                 span=span,
                 table_id=c.get("table_id"),
                 pickup_zone=zone,
@@ -72,8 +75,11 @@ class TrackMap:
         segments: list[Segment] = []
         for up_id, dn_id, s0, s1 in raw_segs:
             up, dn = cameras[up_id], cameras[dn_id]
-            overlap = geom.forward_gap(dn.span[0], up.span[1]) < 0.5  # dn starts before up ends
-            gap = 0.0 if overlap else geom.forward_gap(up.span[1], dn.span[0])
+            # A view is exactly the conveyor section between adjacent camera checkpoints.
+            # Ignore legacy hand-drawn view_span_px values when running fusion.
+            up.span = (s0, s1)
+            overlap = False
+            gap = 0.0
             tables = [
                 c.table_id
                 for c in cameras.values()

@@ -122,7 +122,6 @@ class FusionEngine:
             return
         p = self.plates[gid]
         p.seen_by.pop(ev.camera_id, None)
-        p.s = cam.span[1]
         p.last_ts = ev.ts
         p.color = ev.color
 
@@ -139,7 +138,9 @@ class FusionEngine:
         downstream = self._next_camera(cam.id)
         if downstream is None:
             return
-        self._start_motion(p, cam.span[1], self.map.cameras[downstream].span[0], ev.ts)
+        # Entry already started interpolation across the current camera-to-camera segment.
+        # Exit only means the plate is no longer directly observed; snapping it to span[1]
+        # here made it jump prematurely to the next checkpoint and appear to stop halfway.
         unmatched = self._unmatched_entries.setdefault(downstream, [])
         late_gid = next(
             (
@@ -185,6 +186,19 @@ class FusionEngine:
             self.matcher.log_for(cam.id).record(
                 Crossing(cam.id, gid, p.plate_class, ev.ts)
             )
+
+    def mark_pickup_emitted(self, gid: str) -> None:
+        """Remove a confirmed pickup from the live belt inventory."""
+        plate = self.plates.get(gid)
+        if plate is None:
+            return
+        plate.status = "lost"
+        for key, bound_gid in list(self._binding.items()):
+            if bound_gid == gid:
+                del self._binding[key]
+        for waiting in (*self._handoffs.values(), *self._unmatched_entries.values()):
+            while gid in waiting:
+                waiting.remove(gid)
 
     # -- periodic tick --------------------------------------------------------------
     def tick(self, now: float) -> list[UnmatchedCrossing]:

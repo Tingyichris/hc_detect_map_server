@@ -100,6 +100,9 @@ async def _tick_loop(cfg, engine_ref: dict, sink: BackendSink, hub: Hub):
             )
             if pickup is None:
                 continue
+            # A catch or an overdue unmatched crossing is now a confirmed removal. Keep the
+            # backend/table event and the live map inventory in the same state.
+            engine.mark_pickup_emitted(pickup.gid)
             body = _pickup_body(cfg, pickup)
             sink.submit("pickup", body)
             await hub.broadcast(
