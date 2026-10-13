@@ -1,7 +1,7 @@
-"""Global plate list: assign gids, bind track_ids across overlapping cameras, fuse positions.
+"""Global plate list: assign gids, bind plate IDs across overlapping cameras, fuse positions.
 
-STATUS: skeleton. The data model and the public surface are settled; the matching bodies are
-marked TODO with the algorithm from shared/ + root CLAUDE.md.
+The current implementation records crossings and exposes overdue pickup candidates to the
+main loop. Advanced matching, re-acquire and dead-reckoning bodies are still marked TODO.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from ..config import Config
 from ..map.model import TrackMap
 from ..mqtt.schema import PlateEvent
-from .checkpoints import CheckpointMatcher, Crossing
+from .checkpoints import CheckpointMatcher, Crossing, UnmatchedCrossing
 from .travel_time import TravelTimeModel
 
 log = logging.getLogger(__name__)
@@ -25,9 +25,14 @@ class Plate:
     s: float                          # normalised arc-length
     last_ts: float
     status: str = "tracked"           # tracked | predicted | lost
-    seen_by: dict[str, tuple[int, float]] = field(default_factory=dict)  # cam -> (track_id, ts)
+    seen_by: dict[str, tuple[int, float]] = field(default_factory=dict)  # cam -> (plate_id, ts)
     confidence: float = 1.0
     crossed_lines: set[str] = field(default_factory=set)
+    color: str = "#8892a6"
+    motion_start_s: float = 0.0
+    motion_target_s: float = 0.0
+    motion_started_at: float = 0.0
+    motion_duration_s: float = 1.0
 
 
 class FusionEngine:
@@ -43,8 +48,11 @@ class FusionEngine:
         self.matcher = CheckpointMatcher(self.travel, cfg.fusion.match_window_s)
         self.plates: dict[str, Plate] = {}
         self._gid_counter = itertools.count(1)
-        # (camera_id, track_id) -> gid  binding table, cleared when a track exits + reacquire window passes
+        # (camera_id, plate_id) -> gid binding table, cleared when a plate exits.
         self._binding: dict[tuple[str, int], str] = {}
+        self._handoffs: dict[str, list[str]] = {}
+        self._unmatched_entries: dict[str, list[str]] = {}
+        self.offbelt_gids: set[str] = set()
 
     def _new_gid(self) -> str:
         return f"p_{next(self._gid_counter):06d}"
@@ -55,48 +63,68 @@ class FusionEngine:
         if cam is None:
             log.warning("event from unknown camera %s (not in map v%d)", ev.camera_id, self.map.version)
             return
-        s = self._event_to_s(ev, cam)
-
-        if ev.event == "enter":
-            self._on_enter(ev, cam, s)
-        elif ev.event == "update":
-            self._on_update(ev, s)
+        if ev.event == "entry":
+            self._on_entry(ev, cam)
+        elif ev.event == "catch":
+            self._on_catch(ev, cam)
         else:
-            self._on_exit(ev, cam, s)
+            self._on_exit(ev, cam)
 
-    def _event_to_s(self, ev: PlateEvent, cam) -> float:
-        """Map pos_norm (0..1 within the camera span) onto the global loop arc-length."""
-        span0, span1 = cam.span
-        pos = ev.pos_norm if ev.pos_norm is not None else 0.5
-        return (span0 + self.map.geom.forward_gap(span0, span1) * pos) % 1.0
+    def _next_camera(self, camera_id: str) -> str | None:
+        for segment in self.map.segments:
+            if segment.upstream_id == camera_id:
+                return segment.downstream_id
+        return None
 
-    def _on_enter(self, ev: PlateEvent, cam, s: float) -> None:
-        # TODO: search self.plates for a gid whose predicted s (last_s + travel over dt) is
-        # within cfg.fusion.match_radius_s of `s` AND same class -> bind (overlap / handoff).
-        # TODO: re-acquire hysteresis: a gid that went lost < reacquire_window_s ago near `s`.
-        # Fallthrough: brand new plate.
-        gid = self._new_gid()
-        self.plates[gid] = Plate(gid=gid, plate_class=ev.plate_class, s=s, last_ts=ev.ts,
-                                 confidence=ev.conf, seen_by={ev.camera_id: (ev.track_id, ev.ts)})
-        self._binding[(ev.camera_id, ev.track_id)] = gid
+    def _start_motion(self, plate: Plate, start_s: float, target_s: float, now: float) -> None:
+        gap = self.map.geom.forward_gap(start_s, target_s)
+        loop_seconds = self.travel.loop_seconds_estimate() or self.map.approx_loop_seconds or 120.0
+        plate.s = start_s
+        plate.motion_start_s = start_s
+        plate.motion_target_s = target_s
+        plate.motion_started_at = now
+        plate.motion_duration_s = max(0.5, loop_seconds * gap)
 
-    def _on_update(self, ev: PlateEvent, s: float) -> None:
-        gid = self._binding.get((ev.camera_id, ev.track_id))
-        if gid is None or gid not in self.plates:
+    def _on_entry(self, ev: PlateEvent, cam) -> None:
+        waiting = self._handoffs.setdefault(cam.id, [])
+        gid = next(
+            (
+                candidate
+                for candidate in waiting
+                if candidate in self.plates
+                and self.plates[candidate].plate_class == ev.plate_class
+            ),
+            None,
+        )
+        if gid is not None:
+            waiting.remove(gid)
+            plate = self.plates[gid]
+            plate.s = cam.span[0]
+            plate.last_ts = ev.ts
+            plate.status = "tracked"
+            plate.color = ev.color
+            plate.seen_by[ev.camera_id] = (ev.plate_id, ev.ts)
+            self._binding[(ev.camera_id, ev.plate_id)] = gid
+            self._start_motion(plate, cam.span[0], cam.span[1], ev.ts)
             return
-        p = self.plates[gid]
-        # TODO: position fusion when >1 camera reports this gid (weight by conf / view-centre distance)
-        p.s = s
-        p.last_ts = ev.ts
-        p.status = "tracked"
-        p.seen_by[ev.camera_id] = (ev.track_id, ev.ts)
 
-    def _on_exit(self, ev: PlateEvent, cam, s: float) -> None:
-        gid = self._binding.pop((ev.camera_id, ev.track_id), None)
+        gid = self._new_gid()
+        plate = Plate(gid=gid, plate_class=ev.plate_class, s=cam.span[0], last_ts=ev.ts,
+                      color=ev.color, seen_by={ev.camera_id: (ev.plate_id, ev.ts)})
+        self.plates[gid] = plate
+        self._start_motion(plate, cam.span[0], cam.span[1], ev.ts)
+        self._binding[(ev.camera_id, ev.plate_id)] = gid
+        self._unmatched_entries.setdefault(cam.id, []).append(gid)
+
+    def _on_exit(self, ev: PlateEvent, cam) -> None:
+        gid = self._binding.pop((ev.camera_id, ev.plate_id), None)
         if gid is None or gid not in self.plates:
             return
         p = self.plates[gid]
         p.seen_by.pop(ev.camera_id, None)
+        p.s = cam.span[1]
+        p.last_ts = ev.ts
+        p.color = ev.color
 
         # Record the crossing at this camera's counting line (canonical checkpoint).
         if cam.id not in p.crossed_lines:
@@ -105,20 +133,77 @@ class FusionEngine:
                 Crossing(cam.id, gid, p.plate_class, ev.ts)
             )
 
-        if ev.exit_side == "offbelt":
-            # High-confidence pickup; pickup.py turns this into an attributed event.
-            p.status = "lost"
-        elif not p.seen_by:
-            # Left this camera's view; may be handed to the next camera or be in a gap.
+        if not p.seen_by:
             p.status = "predicted"
 
+        downstream = self._next_camera(cam.id)
+        if downstream is None:
+            return
+        self._start_motion(p, cam.span[1], self.map.cameras[downstream].span[0], ev.ts)
+        unmatched = self._unmatched_entries.setdefault(downstream, [])
+        late_gid = next(
+            (
+                candidate
+                for candidate in unmatched
+                if candidate in self.plates
+                and self.plates[candidate].plate_class == p.plate_class
+                and abs(self.plates[candidate].last_ts - ev.ts)
+                <= self.cfg.fusion.match_window_s
+            ),
+            None,
+        )
+        if late_gid is not None:
+            unmatched.remove(late_gid)
+            late = self.plates.pop(late_gid)
+            for camera_id, (plate_id, seen_ts) in late.seen_by.items():
+                self._binding[(camera_id, plate_id)] = gid
+                p.seen_by[camera_id] = (plate_id, seen_ts)
+            p.s = late.s
+            p.last_ts = max(p.last_ts, late.last_ts)
+            p.status = "tracked"
+            p.color = late.color
+            p.motion_start_s = late.motion_start_s
+            p.motion_target_s = late.motion_target_s
+            p.motion_started_at = late.motion_started_at
+            p.motion_duration_s = late.motion_duration_s
+        else:
+            self._handoffs.setdefault(downstream, []).append(gid)
+
+    def _on_catch(self, ev: PlateEvent, cam) -> None:
+        gid = self._binding.pop((ev.camera_id, ev.plate_id), None)
+        if gid is None or gid not in self.plates:
+            return
+        p = self.plates[gid]
+        p.seen_by.pop(ev.camera_id, None)
+        p.s = cam.counting_s
+        p.last_ts = ev.ts
+        p.color = ev.color
+        p.status = "lost"
+        self.offbelt_gids.add(gid)
+        if cam.id not in p.crossed_lines:
+            p.crossed_lines.add(cam.id)
+            self.matcher.log_for(cam.id).record(
+                Crossing(cam.id, gid, p.plate_class, ev.ts)
+            )
+
     # -- periodic tick --------------------------------------------------------------
-    def tick(self, now: float) -> None:
+    def tick(self, now: float) -> list[UnmatchedCrossing]:
         """Advance predicted plates, run checkpoint alignment, expire stale plates."""
-        # TODO: dead-reckon `predicted` plates: s += forward distance over (now - last_ts)
-        #       using travel-time estimate for the segment they're in.
+        for plate in self.plates.values():
+            if plate.status == "lost":
+                continue
+            progress = min(
+                1.0,
+                max(0.0, (now - plate.motion_started_at) / plate.motion_duration_s),
+            )
+            gap = self.map.geom.forward_gap(plate.motion_start_s, plate.motion_target_s)
+            plate.s = (plate.motion_start_s + gap * progress) % 1.0
+        overdue: list[UnmatchedCrossing] = []
         for seg in self.map.segments:
-            overdue = self.matcher.align_segment(seg.upstream_id, seg.downstream_id, now)
-            # overdue -> hand to pickup.detect() (wired in __main__)
-            _ = overdue
+            for uc in self.matcher.align_segment(seg.upstream_id, seg.downstream_id, now):
+                # A missing downstream crossing is a durable decision candidate. Mark it handled
+                # here so the 0.5s tick loop does not submit the same pickup repeatedly.
+                uc.crossing.matched_downstream = True
+                overdue.append(uc)
         # TODO: expire plates with status == "lost" once emitted; drop plates unseen for >> loop time.
+        return overdue

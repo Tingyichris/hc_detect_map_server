@@ -1,42 +1,37 @@
 """Pydantic models for the Pi -> fusion MQTT payloads. Mirrors docs/mqtt-contract.md (v1)."""
 from __future__ import annotations
 
+import time
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 CONTRACT_VERSION = 1
 
-EventKind = Literal["enter", "update", "exit"]
-ExitSide = Literal["downstream", "upstream", "offbelt", "unknown"]
+EventKind = Literal["entry", "exit", "catch"]
 CamState = Literal["online", "degraded", "offline"]
 CamReason = Literal["ok", "occluded", "low_light", "moved", "rtsp_lost", "lwt"]
 
 
 class PlateEvent(BaseModel):
-    """Payload of sushi/<store>/events/<camera_id>."""
+    """Payload of sushi/events/<camera_id>."""
 
-    v: int = Field(default=CONTRACT_VERSION)
-    camera_id: str
-    seq: int = Field(ge=0)
-    ts: float
+    camera_id: str  # populated from the topic by Consumer
+    ts: float = Field(default_factory=time.time)  # receive time; not in payload
     event: EventKind
-    track_id: int = Field(ge=0)
+    plate_id: int = Field(ge=0)
     plate_class: str = Field(alias="class")
-    conf: float = Field(ge=0.0, le=1.0)
-    pos_norm: float | None = Field(default=None, ge=0.0, le=1.0)
-    exit_side: ExitSide | None = None
+    color: str = "#8892a6"
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 
 
 class CameraStatus(BaseModel):
-    """Payload of sushi/<store>/status/<camera_id> (retained)."""
+    """Payload of sushi/status/<camera_id> (retained)."""
 
-    v: int = Field(default=CONTRACT_VERSION)
-    camera_id: str
+    camera_id: str  # populated from the topic by Consumer
     state: CamState
-    ts: float
+    ts: float = Field(default_factory=time.time)
     reason: CamReason = "ok"
 
     model_config = {"extra": "ignore"}

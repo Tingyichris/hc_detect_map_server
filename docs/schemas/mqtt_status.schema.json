@@ -3,13 +3,10 @@
   "$id": "https://hcdmap/schemas/mqtt_status.schema.json",
   "title": "MQTT camera status",
   "type": "object",
-  "required": ["v", "camera_id", "state", "ts"],
+  "required": ["state"],
   "additionalProperties": true,
   "properties": {
-    "v": { "type": "integer", "const": 1 },
-    "camera_id": { "type": "string", "minLength": 1 },
     "state": { "enum": ["online", "degraded", "offline"] },
-    "ts": { "type": "number" },
     "reason": { "enum": ["ok", "occluded", "low_light", "moved", "rtsp_lost", "lwt"] }
   }
 }

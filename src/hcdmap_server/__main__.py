@@ -8,7 +8,7 @@ import time
 
 from .config import load
 from .fusion.engine import FusionEngine
-from .fusion.pickup import detect as detect_pickup
+from .fusion.pickup import Pickup, detect as detect_pickup
 from .map.model import TrackMap, fetch_current
 from .mqtt.consumer import Consumer, Quarantined
 from .mqtt.schema import CameraStatus, MapSignal, PlateEvent
@@ -44,16 +44,81 @@ async def _consume_loop(cfg, consumer: Consumer, engine_ref: dict, sink: Backend
                 "ts": msg.ts, "severity": "warn"})
 
 
+def _pickup_body(cfg, pickup: Pickup) -> dict:
+    return {
+        "event_id": event_id(
+            "pickup",
+            pickup.gid,
+            pickup.segment[0],
+            pickup.segment[1],
+            pickup.ts,
+            pickup.method,
+        ),
+        "store_id": cfg.store_id,
+        "gid": pickup.gid,
+        "table_id": pickup.table_id,
+        "camera_id": pickup.camera_id,
+        "class": pickup.plate_class,
+        "ts": pickup.ts,
+        "confidence": pickup.confidence,
+        "method": pickup.method,
+        "segment": pickup.segment,
+        "kitchen_removal": pickup.kitchen_removal,
+        "integrity": pickup.integrity,
+    }
+
+
+def _occlusion_anomaly_body(cfg, pickup: Pickup) -> dict:
+    return {
+        "event_id": event_id("pickup-occlusion", pickup.gid, pickup.camera_id, pickup.ts),
+        "store_id": cfg.store_id,
+        "kind": "camera_occluded",
+        "camera_id": pickup.camera_id,
+        "detail": (
+            f"pickup suspected for {pickup.gid} in segment "
+            f"{pickup.segment[0]}>{pickup.segment[1]} while camera was degraded/offline"
+        ),
+        "ts": pickup.ts,
+        "severity": "warn",
+    }
+
+
 async def _tick_loop(cfg, engine_ref: dict, sink: BackendSink, hub: Hub):
     while True:
         now = time.time()
         engine: FusionEngine = engine_ref["engine"]
         camera_states = engine_ref.get("camera_states", {})
-        engine.tick(now)
+        overdue = engine.tick(now)
+
+        for uc in overdue:
+            pickup = detect_pickup(
+                uc,
+                engine.map,
+                camera_states=camera_states,
+                offbelt_gids=engine.offbelt_gids,
+                coldstart_done=False,
+            )
+            if pickup is None:
+                continue
+            body = _pickup_body(cfg, pickup)
+            sink.submit("pickup", body)
+            await hub.broadcast(
+                {
+                    "type": "pickup",
+                    "table_id": pickup.table_id,
+                    "class": pickup.plate_class,
+                    "gid": pickup.gid,
+                    "ts": pickup.ts,
+                    "confidence": pickup.confidence,
+                }
+            )
+            if pickup.method == "occluded_suspect":
+                sink.submit("anomaly", _occlusion_anomaly_body(cfg, pickup))
 
         # Emit live plate snapshot to the frontend.
         plates = [
-            {"gid": p.gid, "s": round(p.s, 5), "class": p.plate_class, "status": p.status,
+            {"gid": p.gid, "s": round(p.s, 5), "class": p.plate_class, "color": p.color,
+             "status": p.status,
              "seen_by": list(p.seen_by), "confidence": round(p.confidence, 3)}
             for p in engine.plates.values() if p.status != "lost"
         ]
@@ -67,9 +132,6 @@ async def _tick_loop(cfg, engine_ref: dict, sink: BackendSink, hub: Hub):
                              "loop_seconds_est": round(engine.travel.loop_seconds_estimate(), 1),
                              "ts": now})
 
-        # TODO: pull overdue crossings out of engine.tick and run detect_pickup() per segment,
-        # then sink.submit("pickup", {...}) with a deterministic event_id and broadcast it.
-        _ = detect_pickup
         await asyncio.sleep(TICK_S)
 
 
@@ -95,8 +157,10 @@ async def main_async() -> None:
 
 
 def main() -> None:
+    from ._aio import run as aio_run
+
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(main_async())
+        aio_run(main_async())
 
 
 if __name__ == "__main__":
