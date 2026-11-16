@@ -5,14 +5,17 @@ from hcdmap_server.mqtt.schema import PlateEvent
 from test_pickup_wiring import _map
 
 
-def event(camera_id, kind, plate_id, plate_class, ts):
-    return PlateEvent.model_validate({
+def event(camera_id, kind, plate_id, plate_class, ts, handoff_id=None):
+    payload = {
         "camera_id": camera_id,
         "event": kind,
         "plate_id": plate_id,
         "class": plate_class,
         "ts": ts,
-    })
+    }
+    if handoff_id:
+        payload["handoff_id"] = handoff_id
+    return PlateEvent.model_validate(payload)
 
 
 def test_multiple_plates_remain_independent_and_provisional_catch_revokes():
@@ -54,3 +57,20 @@ def test_camera_motion_uses_segment_estimate():
     engine.on_event(event("cam_a", "entry", 1, "red", 10.0))
     gid = engine._binding[("cam_a", 1)]
     assert engine.plates[gid].motion_duration_s == expected
+
+
+def test_same_plate_records_crossing_again_after_full_loop():
+    engine = FusionEngine(Config(), _map())
+    handoff_id = "plate-global-123"
+
+    engine.on_event(event("cam_a", "entry", 1, "red", 10.0, handoff_id))
+    gid = engine._binding[("cam_a", 1)]
+    engine.on_event(event("cam_a", "exit", 1, "red", 11.0, handoff_id))
+    engine.on_event(event("cam_b", "entry", 2, "red", 20.0, handoff_id))
+    engine.on_event(event("cam_b", "exit", 2, "red", 21.0, handoff_id))
+    engine.on_event(event("cam_a", "entry", 3, "red", 30.0, handoff_id))
+    engine.on_event(event("cam_a", "exit", 3, "red", 31.0, handoff_id))
+
+    assert engine._handoff_bindings[handoff_id] == gid
+    assert engine.plates[gid].crossing_counts["cam_a"] == 2
+    assert len(engine.matcher.log_for("cam_a").crossings) == 2

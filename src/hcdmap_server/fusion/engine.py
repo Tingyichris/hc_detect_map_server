@@ -27,7 +27,7 @@ class Plate:
     status: str = "tracked"           # tracked | predicted | lost
     seen_by: dict[str, tuple[int, float]] = field(default_factory=dict)  # cam -> (plate_id, ts)
     confidence: float = 1.0
-    crossed_lines: set[str] = field(default_factory=set)
+    crossing_counts: dict[str, int] = field(default_factory=dict)
     color: str = "#8892a6"
     motion_start_s: float = 0.0
     motion_target_s: float = 0.0
@@ -197,6 +197,12 @@ class FusionEngine:
         if gid is not None and gid in self.plates:
             while gid in waiting:
                 waiting.remove(gid)
+            # A shared identity already resolved this entry.  Remove stale
+            # provisional references from earlier out-of-order handling so a
+            # later exit cannot accidentally merge the plate with itself.
+            for unmatched in self._unmatched_entries.values():
+                while gid in unmatched:
+                    unmatched.remove(gid)
             plate = self.plates[gid]
             plate.s = cam.span[0]
             plate.last_ts = ev.ts
@@ -264,6 +270,8 @@ class FusionEngine:
         if gid is None and ev.handoff_id:
             gid = self._handoff_bindings.get(ev.handoff_id)
         if gid in self.plates:
+            if ev.handoff_id:
+                self._handoff_bindings[ev.handoff_id] = gid
             plate = self.plates[gid]
             plate.plate_class = ev.plate_class
             plate.color = ev.color
@@ -279,11 +287,10 @@ class FusionEngine:
         p.color = ev.color
 
         # Record the crossing at this camera's counting line (canonical checkpoint).
-        if cam.id not in p.crossed_lines:
-            p.crossed_lines.add(cam.id)
-            self.matcher.log_for(cam.id).record(
-                Crossing(cam.id, gid, p.plate_class, ev.ts)
-            )
+        p.crossing_counts[cam.id] = p.crossing_counts.get(cam.id, 0) + 1
+        self.matcher.log_for(cam.id).record(
+            Crossing(cam.id, gid, p.plate_class, ev.ts)
+        )
 
         if not p.seen_by:
             p.status = "predicted"
@@ -304,7 +311,7 @@ class FusionEngine:
         lo, hi = estimator.match_window(self.cfg.fusion.match_window_s)
         late_candidates: list[tuple[float, int, str]] = []
         for order, candidate in enumerate(unmatched):
-            if candidate not in self.plates:
+            if candidate == gid or candidate not in self.plates:
                 continue
             late_plate = self.plates[candidate]
             travel_s = late_plate.motion_started_at - p.motion_started_at
@@ -342,11 +349,10 @@ class FusionEngine:
         p.color = ev.color
         p.status = "lost"
         self.offbelt_gids.add(gid)
-        if cam.id not in p.crossed_lines:
-            p.crossed_lines.add(cam.id)
-            self.matcher.log_for(cam.id).record(
-                Crossing(cam.id, gid, p.plate_class, ev.ts)
-            )
+        p.crossing_counts[cam.id] = p.crossing_counts.get(cam.id, 0) + 1
+        self.matcher.log_for(cam.id).record(
+            Crossing(cam.id, gid, p.plate_class, ev.ts)
+        )
 
     def _on_catch_suspected(self, ev: PlateEvent) -> None:
         gid = self._binding.get((ev.camera_id, ev.plate_id))
