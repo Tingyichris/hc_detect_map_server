@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -36,7 +37,10 @@ class Hub:
             self.disconnect(ws)
 
 
-def build_app(hub: Hub) -> FastAPI:
+def build_app(
+    hub: Hub,
+    reset_live_state: Callable[[], Awaitable[None]] | None = None,
+) -> FastAPI:
     app = FastAPI(title="hcdmap-server live feed")
 
     @app.websocket("/ws")
@@ -45,7 +49,16 @@ def build_app(hub: Hub) -> FastAPI:
         await hub.connect(ws)
         try:
             while True:
-                await ws.receive_text()  # clients are read-only; keep the socket alive
+                raw = await ws.receive_text()
+                try:
+                    command = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if (
+                    reset_live_state is not None
+                    and command.get("action") == "reset_live_state"
+                ):
+                    await reset_live_state()
         except WebSocketDisconnect:
             hub.disconnect(ws)
 

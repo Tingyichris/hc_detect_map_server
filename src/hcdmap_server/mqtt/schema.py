@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 
 CONTRACT_VERSION = 1
 
-EventKind = Literal["entry", "exit", "catch"]
+EventKind = Literal[
+    "entry", "update", "exit", "catch", "catch_suspected", "catch_revoked"
+]
 CamState = Literal["online", "degraded", "offline"]
 CamReason = Literal["ok", "occluded", "low_light", "moved", "rtsp_lost", "lwt"]
 
@@ -22,6 +24,10 @@ class PlateEvent(BaseModel):
     plate_id: int = Field(ge=0)
     plate_class: str = Field(alias="class")
     color: str = "#8892a6"
+    handoff_id: str | None = None
+    role: str | None = None
+    status: str | None = None
+    color_source: str | None = None
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 

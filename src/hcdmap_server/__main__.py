@@ -16,7 +16,9 @@ from .sink.backend_client import BackendSink, event_id
 from .ws.server import Hub, build_app, serve
 
 log = logging.getLogger(__name__)
-TICK_S = 0.5
+# Live positions are lightweight and need to reach the dashboard while a plate is
+# still near the camera. 500 ms made the UI visibly trail fast conveyor motion.
+TICK_S = 0.1
 
 
 async def _consume_loop(cfg, consumer: Consumer, engine_ref: dict, sink: BackendSink, hub: Hub):
@@ -36,7 +38,7 @@ async def _consume_loop(cfg, consumer: Consumer, engine_ref: dict, sink: Backend
         elif isinstance(msg, MapSignal):
             log.info("map signal v%d -> reloading", msg.map_version)
             new_map = await fetch_current(cfg.backend.url, cfg.backend.service_token)
-            engine_ref["engine"] = FusionEngine(cfg, new_map)   # TODO: carry over live plates
+            engine.update_map(new_map)
         elif isinstance(msg, Quarantined):
             sink.submit("anomaly", {
                 "event_id": event_id("quarantine", msg.topic, msg.ts),
@@ -148,7 +150,15 @@ async def main_async() -> None:
     engine_ref = {"engine": FusionEngine(cfg, track_map), "camera_states": {}}
     sink = BackendSink(cfg)
     hub = Hub()
-    ws_app = build_app(hub)
+
+    async def reset_live_state() -> None:
+        engine_ref["engine"].reset_live_state()
+        await hub.broadcast({
+            "type": "plates", "ts": time.time(), "plates": [],
+            "count_total": 0, "count_by_class": {}, "integrity": "estimated",
+        })
+
+    ws_app = build_app(hub, reset_live_state)
     consumer = Consumer(cfg)
 
     await asyncio.gather(
