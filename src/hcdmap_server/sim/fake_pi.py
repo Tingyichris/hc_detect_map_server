@@ -106,6 +106,7 @@ class FakePi:
         self._plate_ids = itertools.count(1)
         self._t0 = time.time()
         self._map_lock = asyncio.Lock()
+        self._occluded: set[str] = set()
 
     def _topic(self, kind: str, cam: str) -> str:
         return f"sushi/{kind}/{cam}"
@@ -161,15 +162,12 @@ class FakePi:
             for cam_id in old_ids - new_ids:
                 await self._status(client, cam_id, "offline", "map_reloaded")
             for cam in self.sc.cameras:
-                self._seq.setdefault(cam.id, itertools.count(1))
                 await self._status(client, cam.id, "online", "ok")
             print(
                 f"fake_pi: reloaded map"
                 f"{f' v{version}' if version is not None else ''}; cameras={len(new_ids)}",
                 flush=True,
             )
-
-    _occluded: set[str] = set()
 
     async def _occlusion_driver(self, client) -> None:
         for occ in sorted(self.sc.occlusions, key=lambda o: o["at_s"]):
