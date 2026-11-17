@@ -19,6 +19,8 @@ class PlateEvent(BaseModel):
     """Payload of sushi/events/<camera_id>."""
 
     camera_id: str  # populated from the topic by Consumer
+    pi_id: str | None = None
+    source_id: str | None = None
     ts: float = Field(default_factory=time.time)  # receive time; not in payload
     event: EventKind
     plate_id: int = Field(ge=0)
@@ -36,6 +38,8 @@ class CameraStatus(BaseModel):
     """Payload of sushi/status/<camera_id> (retained)."""
 
     camera_id: str  # populated from the topic by Consumer
+    pi_id: str | None = None
+    source_id: str | None = None
     state: CamState
     ts: float = Field(default_factory=time.time)
     reason: CamReason = "ok"

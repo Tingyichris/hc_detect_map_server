@@ -6,15 +6,15 @@ The Pi side must conform to this compact event contract.
 ## Broker
 
 - Mosquitto (dev: anonymous; prod: per-Pi username/password + ACL).
-- Each Pi: fixed `client_id = <camera_id>`, `clean_session = false`, so a short fusion
+- Each camera worker: fixed `client_id = <pi_id>-<camera_id>`, `clean_session = false`, so a short fusion
   restart doesn't lose events (broker holds QoS 1 messages for the offline session).
 
 ## Topics
 
 | Topic | QoS | Retain | Publisher |
 |-------|-----|--------|-----------|
-| `sushi/events/<camera_id>` | 1 | no  | Pi — plate lifecycle events |
-| `sushi/status/<camera_id>` | 1 | yes | Pi — camera liveness (+ LWT) |
+| `sushi/<pi_id>/events/<camera_id>` | 1 | no  | Pi — plate lifecycle events |
+| `sushi/<pi_id>/status/<camera_id>` | 1 | yes | Pi — camera liveness (+ LWT) |
 | `sushi/belt/speed`         | 0 | yes | optional — PLC/encoder feed |
 | `sushi/config/map`         | 1 | yes | backend — map-reload signal |
 

@@ -26,15 +26,19 @@ async def _consume_loop(cfg, consumer: Consumer, engine_ref: dict, sink: Backend
     async for msg in consumer.stream():
         engine: FusionEngine = engine_ref["engine"]
         if isinstance(msg, PlateEvent):
-            engine.on_event(msg)
+            logical_id = engine.map.source_to_camera.get(msg.source_id or msg.camera_id, msg.camera_id)
+            engine.on_event(msg.model_copy(update={"camera_id": logical_id}))
         elif isinstance(msg, CameraStatus):
-            camera_states[msg.camera_id] = msg.state
+            source_id = msg.source_id or msg.camera_id
+            logical_id = engine.map.source_to_camera.get(source_id, msg.camera_id)
+            camera_states[logical_id] = msg.state
             engine_ref["camera_states"] = camera_states
-            await hub.broadcast({"type": "camera_status", "camera_id": msg.camera_id,
+            await hub.broadcast({"type": "camera_status", "camera_id": logical_id,
+                                 "source_id": source_id,
                                  "state": msg.state, "reason": msg.reason, "ts": msg.ts})
             sink.submit("camera_status", {
-                "event_id": event_id("camstatus", msg.camera_id, msg.ts),
-                "camera_id": msg.camera_id, "state": msg.state, "reason": msg.reason, "ts": msg.ts})
+                "event_id": event_id("camstatus", source_id, msg.ts),
+                "camera_id": source_id, "state": msg.state, "reason": msg.reason, "ts": msg.ts})
         elif isinstance(msg, MapSignal):
             log.info("map signal v%d -> reloading", msg.map_version)
             new_map = await fetch_current(cfg.backend.url, cfg.backend.service_token)

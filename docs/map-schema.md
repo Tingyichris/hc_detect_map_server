@@ -28,6 +28,7 @@ track:
 
 cameras:
   - id: cam_kitchen
+    source_id: pi-01/cam-1      # physical source: Raspberry Pi / local USB-port camera
     role: source              # source = kitchen output; counts injected plates, no billing
     counting_point_px: [150, 430]
     view_span_px: [[120, 400], [230, 470]]

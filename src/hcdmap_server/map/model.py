@@ -17,6 +17,7 @@ CameraRole = Literal["table", "source"]
 @dataclass(slots=True)
 class Camera:
     id: str
+    source_id: str
     role: CameraRole
     counting_s: float
     span: tuple[float, float]              # (s_start, s_end) along the loop
@@ -41,6 +42,7 @@ class TrackMap:
     store_id: str
     geom: TrackGeometry
     cameras: dict[str, Camera]
+    source_to_camera: dict[str, str]
     segments: list[Segment]
     approx_loop_seconds: float | None
     floorplan: dict[str, Any]
@@ -62,8 +64,12 @@ class TrackMap:
             if c.get("pickup_zone_px"):
                 z = c["pickup_zone_px"]
                 zone = (geom.project(tuple(z[0])), geom.project(tuple(z[1])))
+            source_id = str(c.get("source_id") or c["id"])
+            if any(camera.source_id == source_id for camera in cameras.values()):
+                raise ValueError(f"duplicate camera source_id: {source_id}")
             cameras[c["id"]] = Camera(
                 id=c["id"],
+                source_id=source_id,
                 role=c.get("role", "table"),
                 counting_s=geom.project(tuple(checkpoint_px)),
                 span=span,
@@ -96,6 +102,7 @@ class TrackMap:
             store_id=d["store_id"],
             geom=geom,
             cameras=cameras,
+            source_to_camera={camera.source_id: camera.id for camera in cameras.values()},
             segments=segments,
             approx_loop_seconds=track.get("approx_loop_seconds"),
             floorplan=d.get("floorplan", {}),

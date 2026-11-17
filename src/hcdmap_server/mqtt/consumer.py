@@ -42,13 +42,27 @@ class Consumer:
             return Quarantined(topic, "invalid_json", payload, time.time())
 
         try:
+            parts = topic.split("/")
+            if len(parts) == 4 and parts[0] == "sushi" and parts[2] == "events":
+                pi_id, camera_id = parts[1], parts[3]
+                obj.update(pi_id=pi_id, camera_id=camera_id, source_id=f"{pi_id}/{camera_id}")
+                obj["ts"] = time.time()
+                return PlateEvent.model_validate(obj)
+            if len(parts) == 4 and parts[0] == "sushi" and parts[2] == "status":
+                pi_id, camera_id = parts[1], parts[3]
+                obj.update(pi_id=pi_id, camera_id=camera_id, source_id=f"{pi_id}/{camera_id}")
+                obj["ts"] = time.time()
+                obj.setdefault("reason", "ok")
+                return CameraStatus.model_validate(obj)
             if topic.startswith("sushi/events/"):
                 obj["camera_id"] = topic.removeprefix("sushi/events/")
+                obj["source_id"] = obj["camera_id"]
                 obj["ts"] = time.time()
                 ev = PlateEvent.model_validate(obj)
                 return ev
             if topic.startswith("sushi/status/"):
                 obj["camera_id"] = topic.removeprefix("sushi/status/")
+                obj["source_id"] = obj["camera_id"]
                 obj["ts"] = time.time()
                 obj.setdefault("reason", "ok")
                 return CameraStatus.model_validate(obj)
