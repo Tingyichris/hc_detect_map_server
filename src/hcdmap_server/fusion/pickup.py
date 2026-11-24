@@ -46,6 +46,8 @@ def detect(
     seg = next((s for s in track_map.segments if (s.upstream_id, s.downstream_id) == uc.segment), None)
     if seg is None:
         return None
+    if seg.handoff_only:
+        return None
 
     up_cam = track_map.cameras[up_id]
     kitchen_removal = up_cam.role == "source"

@@ -23,6 +23,7 @@ class Camera:
     span: tuple[float, float]              # (s_start, s_end) along the loop
     table_id: str | None = None
     pickup_zone: tuple[float, float] | None = None
+    turn_point_s: float | None = None
 
 
 @dataclass(slots=True)
@@ -34,6 +35,7 @@ class Segment:
     tables: list[str] = field(default_factory=list)   # role: table cameras whose span falls here
     has_overlap: bool = False                          # adjacent spans overlap -> simultaneous de-dup
     gap_len: float = 0.0                               # >0 -> dead-reckon across this segment
+    handoff_only: bool = False                         # turn point: do not infer pickup here
 
 
 @dataclass(slots=True)
@@ -75,6 +77,7 @@ class TrackMap:
                 span=span,
                 table_id=c.get("table_id"),
                 pickup_zone=zone,
+                turn_point_s=(geom.project(tuple(c["turn_point_px"])) if c.get("turn_point_px") else None),
             )
 
         raw_segs = build_segments([(c.id, c.counting_s) for c in cameras.values()])
@@ -93,9 +96,10 @@ class TrackMap:
                 and c.table_id
                 and geom.forward_gap(s0, c.counting_s) <= geom.forward_gap(s0, s1)
             ]
-            segments.append(
-                Segment(up_id, dn_id, s0, s1, tables=tables, has_overlap=overlap, gap_len=gap)
-            )
+            segments.append(Segment(
+                up_id, dn_id, s0, s1, tables=tables, has_overlap=overlap, gap_len=gap,
+                handoff_only=up.turn_point_s is not None,
+            ))
 
         return cls(
             version=d["version"],
