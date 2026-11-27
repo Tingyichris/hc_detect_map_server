@@ -59,6 +59,19 @@ def test_camera_motion_uses_segment_estimate():
     assert engine.plates[gid].motion_duration_s == expected
 
 
+def test_downstream_entry_is_hidden_until_handoff_window_expires():
+    engine = FusionEngine(Config(), _map())
+    engine.on_event(event("cam_b", "entry", 20, "red", 10.0))
+    gid = engine._binding[("cam_b", 20)]
+
+    assert engine.plates[gid].pending_until == 12.0
+    engine.tick(11.9)
+    assert engine.plates[gid].pending_until == 12.0
+
+    engine.tick(12.0)
+    assert engine.plates[gid].pending_until == 0.0
+
+
 def test_same_plate_records_crossing_again_after_full_loop():
     engine = FusionEngine(Config(), _map())
     handoff_id = "plate-global-123"

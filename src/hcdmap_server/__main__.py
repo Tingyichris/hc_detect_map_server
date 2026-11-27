@@ -129,7 +129,8 @@ async def _tick_loop(cfg, engine_ref: dict, sink: BackendSink, hub: Hub):
             {"gid": p.gid, "s": round(p.s, 5), "class": p.plate_class, "color": p.color,
              "status": p.status,
              "seen_by": list(p.seen_by), "confidence": round(p.confidence, 3)}
-            for p in engine.plates.values() if p.status != "lost"
+            for p in engine.plates.values()
+            if p.status != "lost" and p.pending_until <= now
         ]
         by_class: dict[str, int] = {}
         for p in plates:

@@ -33,6 +33,7 @@ class Plate:
     motion_target_s: float = 0.0
     motion_started_at: float = 0.0
     motion_duration_s: float = 1.0
+    pending_until: float = 0.0
 
 
 class FusionEngine:
@@ -207,6 +208,7 @@ class FusionEngine:
             plate.s = cam.span[0]
             plate.last_ts = ev.ts
             plate.status = "tracked"
+            plate.pending_until = 0.0
             plate.color = ev.color
             plate.plate_class = ev.plate_class
             plate.seen_by[ev.camera_id] = (ev.plate_id, ev.ts)
@@ -241,6 +243,7 @@ class FusionEngine:
             plate.s = cam.span[0]
             plate.last_ts = ev.ts
             plate.status = "tracked"
+            plate.pending_until = 0.0
             plate.color = ev.color
             plate.seen_by[ev.camera_id] = (ev.plate_id, ev.ts)
             self._binding[(ev.camera_id, ev.plate_id)] = gid
@@ -253,8 +256,14 @@ class FusionEngine:
             return
 
         gid = self._new_gid()
+        upstream_id = self._upstream_camera(cam.id)
+        pending_until = (
+            ev.ts + self.cfg.fusion.match_window_s
+            if upstream_id is not None else 0.0
+        )
         plate = Plate(gid=gid, plate_class=ev.plate_class, s=cam.span[0], last_ts=ev.ts,
-                      color=ev.color, seen_by={ev.camera_id: (ev.plate_id, ev.ts)})
+                      color=ev.color, seen_by={ev.camera_id: (ev.plate_id, ev.ts)},
+                      pending_until=pending_until)
         self.plates[gid] = plate
         self._start_motion(
             plate, cam.span[0], cam.span[1], ev.ts,
@@ -387,6 +396,8 @@ class FusionEngine:
         for plate in self.plates.values():
             if plate.status == "lost":
                 continue
+            if plate.pending_until and now >= plate.pending_until:
+                plate.pending_until = 0.0
             progress = min(
                 1.0,
                 max(0.0, (now - plate.motion_started_at) / plate.motion_duration_s),
