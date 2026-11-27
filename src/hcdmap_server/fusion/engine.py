@@ -257,10 +257,12 @@ class FusionEngine:
 
         gid = self._new_gid()
         upstream_id = self._upstream_camera(cam.id)
-        pending_until = (
-            ev.ts + self.cfg.fusion.match_window_s
-            if upstream_id is not None else 0.0
-        )
+        pending_until = 0.0
+        if upstream_id is not None:
+            _lo, hi = self.travel.get(upstream_id, cam.id).match_window(
+                self.cfg.fusion.match_window_s
+            )
+            pending_until = ev.ts + hi
         plate = Plate(gid=gid, plate_class=ev.plate_class, s=cam.span[0], last_ts=ev.ts,
                       color=ev.color, seen_by={ev.camera_id: (ev.plate_id, ev.ts)},
                       pending_until=pending_until)
