@@ -91,6 +91,9 @@ class Consumer:
                     await client.subscribe("sushi/#", qos=1)
                     log.info("subscribed to sushi/#")
                     async for msg in client.messages:
+                        # Retained status is authoritative: online is published on connect,
+                        # and the broker replaces it with the retained LWT on an ungraceful
+                        # disconnect.  It must also be consumed after a fusion restart.
                         yield self._parse(str(msg.topic), msg.payload)  # type: ignore[arg-type]
             except aiomqtt.MqttError as e:
                 log.warning("mqtt disconnected (%s); retrying in 3s", e)

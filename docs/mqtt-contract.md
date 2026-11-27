@@ -45,9 +45,9 @@ Optional extra fields are allowed and ignored by fusion.
 ```
 
 - `state`: `online` · `degraded` · `offline`
-- Published on connect (`online`), on any state change, and as a heartbeat every ~10 s.
+- Published as retained state on connect (`online`) and on any state change.
 - **LWT** registered on the same topic as `{"state":"offline"}`, retained.
-- Fusion: no message for > 30 s ⇒ treat as `offline` regardless.
+- The retained MQTT state is authoritative. Age alone does not change a camera to `offline`.
 
 ## `belt/speed` payload (optional, retained)
 

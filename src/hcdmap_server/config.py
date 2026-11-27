@@ -42,6 +42,7 @@ class FusionCfg:
     match_window_s: float = 2.0
     match_radius_s: float = 0.01
     reacquire_window_s: float = 1.5
+    # Deprecated compatibility setting. Retained MQTT session state is authoritative.
     camera_offline_after_s: float = 30.0
     max_clock_skew_s: float = 3.0
 

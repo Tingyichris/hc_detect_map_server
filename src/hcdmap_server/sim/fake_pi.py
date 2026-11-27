@@ -119,7 +119,6 @@ class FakePi:
                 await self._status(client, c.id, "online", "ok")
             await asyncio.gather(
                 self._map_reload_driver(client),
-                self._heartbeats(client),
                 self._occlusion_driver(client),
                 self._plate_driver(client),
             )
@@ -130,13 +129,6 @@ class FakePi:
             json.dumps({"state": state}),
             qos=1, retain=True,
         )
-
-    async def _heartbeats(self, client) -> None:
-        while True:
-            await asyncio.sleep(10)
-            for c in list(self.sc.cameras):
-                if c.id not in self._occluded:
-                    await self._status(client, c.id, "online", "ok")
 
     async def _map_reload_driver(self, client) -> None:
         if not self.sc.use_current_map:
