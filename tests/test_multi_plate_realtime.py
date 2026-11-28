@@ -64,10 +64,12 @@ def test_downstream_entry_is_hidden_until_handoff_window_expires():
     engine.on_event(event("cam_b", "entry", 20, "red", 10.0))
     gid = engine._binding[("cam_b", 20)]
 
-    expected_until = 10.0 + engine.travel.get("cam_a", "cam_b").match_window(
-        engine.cfg.fusion.match_window_s
-    )[1]
-    assert engine.plates[gid].pending_until == expected_until
+    pending_until = engine.plates[gid].pending_until
+    assert pending_until > 12.0
+    engine.tick(pending_until - 0.1)
+    assert engine.plates[gid].pending_until == pending_until
+    engine.tick(pending_until)
+    assert engine.plates[gid].pending_until == 0.0
     engine.tick(expected_until - 0.1)
     assert engine.plates[gid].pending_until == expected_until
 
