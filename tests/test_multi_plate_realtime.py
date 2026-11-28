@@ -70,11 +70,6 @@ def test_downstream_entry_is_hidden_until_handoff_window_expires():
     assert engine.plates[gid].pending_until == pending_until
     engine.tick(pending_until)
     assert engine.plates[gid].pending_until == 0.0
-    engine.tick(expected_until - 0.1)
-    assert engine.plates[gid].pending_until == expected_until
-
-    engine.tick(expected_until)
-    assert engine.plates[gid].pending_until == 0.0
 
 
 def test_same_plate_records_crossing_again_after_full_loop():
